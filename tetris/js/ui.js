@@ -26,6 +26,25 @@ const highscoreList = document.getElementById('highscore-list');
 const saveForm = document.getElementById('save-score-form');
 const playerName = document.getElementById('player-name');
 
+// 背景音乐（可替换为项目中的实际 mp3 文件）
+const bgAudio = new Audio('../assets/audio/bg-music.mp3');
+bgAudio.loop = true;
+let musicEnabled = true;
+
+// 在 UI 中添加音乐控制按钮
+const musicBtn = document.createElement('button');
+musicBtn.textContent = '静音';
+musicBtn.style.marginTop = '8px';
+const panel = document.querySelector('.panel');
+panel.appendChild(musicBtn);
+
+musicBtn.addEventListener('click', () => {
+  musicEnabled = !musicEnabled;
+  musicBtn.textContent = musicEnabled ? '静音' : '播放音乐';
+  if (musicEnabled && !game.paused) bgAudio.play().catch(()=>{});
+  else bgAudio.pause();
+});
+
 let game = new TetrisGame(ctx, nextCtx, (state) => {
   // 回调在游戏状态变化时更新 UI
   scoreEl.textContent = state.score ?? 0;
@@ -33,14 +52,15 @@ let game = new TetrisGame(ctx, nextCtx, (state) => {
   linesEl.textContent = state.lines ?? 0;
   if (state.gameOver) {
     alert('游戏结束！你可以保存分数到本地排行榜。');
+    bgAudio.pause();
     renderHighscores();
   }
 });
 
 // 按钮事件
-startBtn.addEventListener('click', () => { game.start(); renderHighscores(); });
-pauseBtn.addEventListener('click', () => { game.pause(); pauseBtn.textContent = game.paused ? '继续' : '暂停'; });
-resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); });
+startBtn.addEventListener('click', () => { game.start(); renderHighscores(); if (musicEnabled) bgAudio.play().catch(()=>{}); });
+pauseBtn.addEventListener('click', () => { game.pause(); pauseBtn.textContent = game.paused ? '继续' : '暂停'; if (game.paused) bgAudio.pause(); else if (musicEnabled) bgAudio.play().catch(()=>{}); });
+resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); bgAudio.pause(); });
 
 // 键盘事件（避免与页面默认滚动冲突）
 window.addEventListener('keydown', (e) => {

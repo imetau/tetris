@@ -46,21 +46,86 @@ const SHAPES = {
   ]
 };
 
-// 颜色映射
-const COLORS = {
-  I: '#00e5ff', J:'#3f51b5', L:'#ffb74d', O:'#ffd54f', S:'#00e676', T:'#ba68c8', Z:'#ff5252', X:'#263238'
+// 新增：额外异形方块（设计为方阵矩阵，便于旋转）
+const EXTRA_SHAPES = {
+  // U 形（3x3）
+  U: [
+    [[1,0,1],
+     [1,1,1],
+     [0,0,0]]
+  ],
+  // P 形（类似一个小方块加翘起）（3x3）
+  P: [
+    [[1,1,0],
+     [1,1,1],
+     [0,0,0]]
+  ],
+  // W 形（3x3，锯齿）
+  W: [
+    [[1,0,0],
+     [1,1,0],
+     [0,1,1]]
+  ],
+  // V 形（3x3）
+  V: [
+    [[1,0,0],
+     [1,0,0],
+     [1,1,0]]
+  ],
+  // X 形（中心像素，3x3）
+  X: [
+    [[0,1,0],
+     [1,1,1],
+     [0,1,0]]
+  ],
+  // Y 形（4x4 用于更复杂旋转）
+  Y: [
+    [[0,1,0,0],
+     [1,1,1,1],
+     [0,0,0,0],
+     [0,0,0,0]]
+  ],
+  // 单点方块（1x1）
+  DOT: [
+    [[1]]
+  ]
 };
 
-// 随机生成 Tetromino（简单版：7-bag 可后续改进）
-function randomTetromino() {
-  const keys = Object.keys(SHAPES);
-  const k = keys[Math.floor(Math.random() * keys.length)];
+// 颜色映射（为新方块添加颜色）
+const COLORS = {
+  I: '#00e5ff', J:'#3f51b5', L:'#ffb74d', O:'#ffd54f', S:'#00e676', T:'#ba68c8', Z:'#ff5252', X:'#263238',
+  U:'#4dd0e1', P:'#8bc34a', W:'#ff8a65', V:'#ffd180', Y:'#b39ddb', DOT:'#ffffff'
+};
+
+// 随机生成 Tetromino（支持权重映射或普通数组）
+function weightedRandomKey(weightsOrArray) {
+  // 如果传入的是对象映射 name->weight
+  if (weightsOrArray && typeof weightsOrArray === 'object' && !Array.isArray(weightsOrArray)) {
+    const keys = Object.keys(weightsOrArray);
+    const weights = keys.map(k => Math.max(0, Number(weightsOrArray[k]) || 0));
+    const total = weights.reduce((a,b)=>a+b,0);
+    if (total <= 0) return keys[Math.floor(Math.random()*keys.length)];
+    let r = Math.random() * total;
+    for (let i=0;i<keys.length;i++) {
+      r -= weights[i];
+      if (r <= 0) return keys[i];
+    }
+    return keys[keys.length-1];
+  }
+  // 如果是数组
+  const arr = Array.isArray(weightsOrArray) ? weightsOrArray : Object.keys(SHAPES);
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randomTetromino(shapeWeights = null) {
+  const k = weightedRandomKey(shapeWeights);
   return createPiece(k);
 }
 
 function createPiece(type) {
   // 深拷贝模板矩阵并返回对象
-  const matrix = SHAPES[type][0].map(r => r.slice());
+  const source = SHAPES[type] || EXTRA_SHAPES[type];
+  const matrix = source[0].map(r => r.slice());
   return {
     type,
     matrix,
@@ -78,10 +143,20 @@ function rotateMatrix(matrix) {
 
 // TetrisGame 类
 export class TetrisGame {
-  constructor(ctx, nextCtx, onUpdate = () => {}) {
+  constructor(ctx, nextCtx, onUpdate = () => {}, options = {}) {
     this.ctx = ctx;           // 主画布上下文
     this.nextCtx = nextCtx;   // 下一个方块画布上下文
     this.onUpdate = onUpdate; // 回调，用于 UI 更新（score/level/lines）
+    // options.extraShapes: 布尔值，启用额外异形方块
+    // options.dotWeight: DOT 出现的相对权重（默认很小，如 0.05）
+    this.options = options;
+    // 根据配置选择方块池并建立权重映射
+    const combined = options.extraShapes ? { ...SHAPES, ...EXTRA_SHAPES } : { ...SHAPES };
+    this.shapeWeights = {};
+    const defaultDotWeight = typeof options.dotWeight === 'number' ? options.dotWeight : 0.05;
+    for (const k of Object.keys(combined)) {
+      this.shapeWeights[k] = (k === 'DOT') ? defaultDotWeight : 1;
+    }
     this.reset();
   }
 
@@ -95,8 +170,9 @@ export class TetrisGame {
     this.lastDropTime = 0;
     this.gameOver = false;
     this.paused = false;
-    this.current = randomTetromino();
-    this.next = randomTetromino();
+    // 使用权重地图生成方块
+    this.current = randomTetromino(this.shapeWeights);
+    this.next = randomTetromino(this.shapeWeights);
     this.onUpdate({score: this.score, level: this.level, lines: this.lines});
   }
 
@@ -185,7 +261,7 @@ export class TetrisGame {
       }
       // 获取下一个方块
       this.current = this.next;
-      this.next = randomTetromino();
+      this.next = randomTetromino(this.shapePool);
       // 如果新方块一放置就碰撞 => 游戏结束
       if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
         this.gameOver = true;
@@ -221,7 +297,7 @@ export class TetrisGame {
     return cleared;
   }
 
-  // 绘制网格与方块
+  // 绘制网格与方块，DOT 闪烁效果
   draw() {
     // 清空主画布
     const ctx = this.ctx;
@@ -235,15 +311,19 @@ export class TetrisGame {
     }
     // 绘制当前操控方块
     const mat = this.current.matrix;
+    const isDot = this.current.type === 'DOT';
+    const now = performance.now();
+    const dotVisible = isDot ? ((Math.floor(now / 250) % 2) === 0) : true; // DOT 每 250ms 闪烁一次
     for (let r=0;r<mat.length;r++){
       for (let c=0;c<mat[r].length;c++){
         if (mat[r][c]) {
           const x = this.current.x + c;
           const y = this.current.y + r;
-          if (y >= 0) this.drawCell(x, y, COLORS[this.current.type]);
+          if (y >= 0 && (dotVisible || !isDot)) this.drawCell(x, y, COLORS[this.current.type]);
         }
       }
     }
+
     // 绘制网格线（可选）
     ctx.strokeStyle = 'rgba(255,255,255,0.03)';
     for (let x=0;x<=COLS;x++){
