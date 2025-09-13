@@ -185,8 +185,11 @@ function previewTrackById(id) {
   ensureAudioContext();
   const tr = (musicLibrary.find(t=>t.id===id)||musicLibrary[0]).make();
   const startAt = audioCtx.currentTime + 0.05;
-  const stopAfter = Math.min(6000, tr.duration*1000);
+  const stopAfter = Math.min(8000, tr.duration*1000); // 8s 片段
   const scheduled = [];
+  const progEl = document.getElementById('music-prog-'+id);
+  if (progEl) { progEl.max = stopAfter; progEl.value = 0; }
+  let startTime = performance.now();
   for (const ev of tr.events) {
     if (ev.t*1000 > stopAfter) break;
     const o = audioCtx.createOscillator();
@@ -203,7 +206,22 @@ function previewTrackById(id) {
     o.stop(e + 0.02);
     scheduled.push(o); scheduled.push(g);
   }
-  setTimeout(() => { for (const n of scheduled) { try { if (n.stop) n.stop(); } catch(e){} try { if (n.disconnect) n.disconnect(); } catch(e){} } }, stopAfter + 100);
+  // 更新进度
+  if (previewTimers[id]) { clearInterval(previewTimers[id]); previewTimers[id] = null; }
+  previewTimers[id] = setInterval(() => {
+    const elapsed = performance.now() - startTime;
+    if (progEl) progEl.value = Math.min(stopAfter, elapsed);
+    if (elapsed > stopAfter) {
+      clearInterval(previewTimers[id]); previewTimers[id] = null;
+      for (const n of scheduled) { try{ if (n.stop) n.stop(); }catch(e){} try{ if (n.disconnect) n.disconnect(); }catch(e){} }
+      if (progEl) progEl.value = 0;
+    }
+  }, 100);
+  setTimeout(() => {
+    if (previewTimers[id]) { clearInterval(previewTimers[id]); previewTimers[id] = null; }
+    for (const n of scheduled) { try{ if (n.stop) n.stop(); }catch(e){} try{ if (n.disconnect) n.disconnect(); }catch(e){} }
+    if (progEl) progEl.value = 0;
+  }, stopAfter + 200);
 }
 
 // 在 UI 中创建可勾选曲目列表与预览按钮
@@ -223,6 +241,12 @@ function renderMusicList() {
     const cb = document.createElement('input'); cb.type='checkbox'; cb.value=id; cb.checked=checked; cb.id = 'music-cb-'+id;
     const label = document.createElement('label'); label.htmlFor = cb.id; label.style.marginRight='8px'; label.textContent = track.name;
     const preview = document.createElement('button'); preview.textContent='预览'; preview.style.marginLeft='6px';
+    const durationSpan = document.createElement('span'); durationSpan.style.marginLeft='8px'; durationSpan.style.fontSize='12px'; durationSpan.style.color='#ccc';
+    // 进度条（HTML progress）
+    const prog = document.createElement('progress'); prog.max = 100; prog.value = 0; prog.style.marginLeft = '8px'; prog.style.verticalAlign='middle'; prog.id = 'music-prog-'+id;
+    // 显示总时长（秒）
+    durationSpan.textContent = (track.make().duration ? Math.round(track.make().duration) + 's' : '—');
+
     preview.addEventListener('click', (e)=>{ e.preventDefault(); previewTrackById(id); });
     cb.addEventListener('change', () => {
       if (cb.checked) {
@@ -234,29 +258,15 @@ function renderMusicList() {
     });
     const row = document.createElement('div');
     row.appendChild(cb); row.appendChild(label); row.appendChild(preview);
+    row.appendChild(durationSpan); row.appendChild(prog);
     musicList.appendChild(row);
   }
 }
 renderMusicList();
 
-// 在 UI 中添加音乐控制按钮（如果尚未添加）
-let musicBtn = document.getElementById('music-btn');
-if (!musicBtn) {
-  musicBtn = document.createElement('button');
-  musicBtn.id = 'music-btn';
-  musicBtn.style.marginTop = '8px';
-  const panel = document.querySelector('.panel');
-  panel.appendChild(musicBtn);
-}
-function updateMusicBtnText() { musicBtn.textContent = musicEnabled ? '静音' : '播放音乐'; }
-updateMusicBtnText();
-
-musicBtn.addEventListener('click', () => {
-  musicEnabled = !musicEnabled;
-  try { localStorage.setItem(MUSIC_ENABLED_KEY, String(musicEnabled)); } catch(e){}
-  updateMusicBtnText();
-  if (musicEnabled) startMusicLoop(); else stopMusicLoop();
-});
+// 确保 canvas 在点击或触摸时获得焦点，修复切换选项后键盘无效问题
+gameCanvas.addEventListener('click', ()=> { try{ gameCanvas.focus(); }catch(e){} });
+gameCanvas.addEventListener('touchstart', ()=> { try{ gameCanvas.focus(); }catch(e){} }, {passive:true});
 
 // 新增：异形方块开关和 DOT 权重控件
 let extraControls = document.getElementById('extra-controls');
@@ -413,3 +423,44 @@ function showGameOverModal(score) {
   document.getElementById('modal-close').addEventListener('click', () => { modal.style.display = 'none'; });
   document.getElementById('modal-save').addEventListener('click', () => { document.getElementById('player-name').focus(); modal.style.display = 'none'; });
 }
+
+// 增加更多曲目到 musicLibrary（若尚未存在）
+(function addExtraTracks(){
+  const nextId = musicLibrary.length;
+  musicLibrary.push({ id: nextId, name: '弦乐环 A', make: () => makeAmbientTrack(164) });
+  musicLibrary.push({ id: nextId+1, name: '轻快序列 D', make: () => makeSequenceTrack(246) });
+  // 重新渲染列表以显示新增曲目
+  renderMusicList();
+})();
+
+// 移动端触控按键（底部居中、大按钮，支持 pointerdown/pointerup）
+let touchControls = document.getElementById('touch-controls');
+if (!touchControls) {
+  touchControls = document.createElement('div');
+  touchControls.id = 'touch-controls';
+  touchControls.style.position = 'fixed';
+  touchControls.style.left = '50%';
+  touchControls.style.bottom = '12px';
+  touchControls.style.transform = 'translateX(-50%)';
+  touchControls.style.display = 'flex';
+  touchControls.style.gap = '8px';
+  touchControls.style.zIndex = '9998';
+  document.body.appendChild(touchControls);
+}
+function makeBtn(label, w=64, h=64) {
+  const b = document.createElement('button'); b.textContent = label; b.style.width = w+'px'; b.style.height = h+'px'; b.style.borderRadius = '12px'; b.style.fontSize='18px'; b.style.opacity='0.9'; b.style.touchAction='none'; return b;
+}
+const leftBtn = makeBtn('←'); const rightBtn = makeBtn('→'); const rotBtn = makeBtn('旋'); const downBtn = makeBtn('↓'); const dropBtn = makeBtn('⬇');
+leftBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.move(-1); });
+rightBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.move(1); });
+rotBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.rotateCurrent(); });
+downBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); // 连续下落
+  let id = setInterval(()=>{ try{ game.drop(); }catch(e){} }, 120); downBtn._holdId = id;
+});
+downBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); if (downBtn._holdId) { clearInterval(downBtn._holdId); downBtn._holdId = null; } });
+dropBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.hardDrop(); });
+// 在 pointerup 时也清理可能的 hold
+['pointerup','pointercancel','pointerleave'].forEach(evt => {
+  downBtn.addEventListener(evt, ()=>{ if (downBtn._holdId) { clearInterval(downBtn._holdId); downBtn._holdId = null; } });
+});
+[ leftBtn, rightBtn, rotBtn, downBtn, dropBtn ].forEach(b=> touchControls.appendChild(b));
