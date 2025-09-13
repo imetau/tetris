@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    name: Lint & Basic Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify project files
+        run: |
+          echo "List tetris/ folder contents"
+          ls -la
+          ls -la tetris || true
+          if [ ! -f tetris/index.html ]; then echo "Error: tetris/index.html not found"; exit 1; fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (if package.json exists)
+        if: ${{ hashFiles('**/package.json') != '' }}
+        run: |
+          cd tetris
+          echo "package.json found, installing..."
+          npm ci
+
+      - name: Run lint (if lint script exists)
+        if: ${{ hashFiles('**/package.json') != '' }}
+        run: |
+          cd tetris
+          echo "Checking for lint script..."
+          if npm run | grep -q "lint"; then
+            npm run lint
+          else
+            echo "No lint script defined, skipping"
+          fi
+
+      - name: Run tests (if test script exists)
+        if: ${{ hashFiles('**/package.json') != '' }}
+        run: |
+          cd tetris
+          echo "Checking for test script..."
+          if npm run | grep -q "test"; then
+            npm test --if-present
+          else
+            echo "No test script defined, skipping"
+          fi
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true # needed for deployment
+
+      - name: Ensure tetris directory exists
+        run: |
+          ls -la tetris
+          if [ ! -d tetris ]; then echo "tetris directory not found"; exit 1; fi
+
+      - name: Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./tetris
+          publish_branch: gh-pages
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
