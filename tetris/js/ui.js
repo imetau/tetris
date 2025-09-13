@@ -358,9 +358,6 @@ function createGameFromUI() {
     dotWeight: parseFloat(dotRange.value)
   };
   game = new TetrisGame(ctx, nextCtx, (state) => {
-    // 根据 state.paused/gameOver 控制输入
-    if (state.paused || state.gameOver) setInputEnabled(false); else setInputEnabled(true);
-
     // 播放放置音
     if (state.placed) playEffect('place');
     // 播放消行音效（如果有）
@@ -377,12 +374,11 @@ function createGameFromUI() {
     }
   }, opts);
   // 创建后尝试恢复焦点到 canvas，确保键盘可用
-  focusCanvasDelayed();
-  // 隐藏可能遗留的遮罩，确保按钮可点
-  hideOverlay();
-  // 默认刚创建游戏时禁用输入，待玩家按开始启用
-  setInputEnabled(false);
+  try { gameCanvas.focus(); } catch(e){}
 }
+
+// 初始化游戏
+createGameFromUI();
 
 // 将按钮事件改为基于当前 game 实例
 startBtn.addEventListener('click', () => {
@@ -392,16 +388,55 @@ startBtn.addEventListener('click', () => {
   if (musicEnabled) startMusicLoop();
   game.start();
   renderHighscores();
-  // 隐藏遮罩并启用输入
-  hideOverlay();
-  setInputEnabled(true);
 });
 pauseBtn.addEventListener('click', () => {
   game.pause();
   pauseBtn.textContent = game.paused ? '继续' : '暂停';
-  if (game.paused) { stopMusicLoop(); setInputEnabled(false); } else if (musicEnabled) { startMusicLoop(); setInputEnabled(true); }
+  if (game.paused) stopMusicLoop(); else if (musicEnabled) startMusicLoop();
 });
-resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); stopMusicLoop(); setInputEnabled(false); hideOverlay(); });
+resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); stopMusicLoop(); });
+
+// 当用户更改额外方块开关或 DOT 权重时，重建游戏以生效（保留分数会重置）
+extraCheckbox.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); // 延迟 focus，确保 DOM 更新后生效
+  setTimeout(()=>{ try{ gameCanvas.focus(); }catch(e){} }, 120); });
+dotRange.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); setTimeout(()=>{ try{ gameCanvas.focus(); }catch(e){} }, 120); });
+
+// 键盘事件（避免与页面默认滚动冲突）
+window.addEventListener('keydown', (e) => {
+  if (!inputEnabled) return; // 当禁用输入（暂停/结束）时忽略
+  if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
+  switch (e.code) {
+    case 'ArrowLeft': e.preventDefault(); game.move(-1); break;
+    case 'ArrowRight': e.preventDefault(); game.move(1); break;
+    case 'ArrowUp': e.preventDefault(); game.rotateCurrent(); break;
+    case 'ArrowDown': e.preventDefault(); game.drop(); break;
+    case 'Space': e.preventDefault(); game.hardDrop(); break;
+  }
+});
+
+// 保存分数表单（保持不变）
+saveForm.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const name = playerName.value.trim() || '匿名';
+  const score = Number(scoreEl.textContent) || 0;
+  saveLocalScore(name, score);
+  playerName.value = '';
+  renderHighscores();
+});
+
+// 渲染本地排行榜
+function renderHighscores() {
+  const list = getLocalScores(10);
+  highscoreList.innerHTML = '';
+  for (const item of list) {
+    const li = document.createElement('li');
+    li.textContent = `${item.name} — ${item.score}`;
+    highscoreList.appendChild(li);
+  }
+}
+
+// 初始渲染
+renderHighscores();
 
 // 页面内 modal 实现
 let modal = document.getElementById('gameover-modal');
@@ -423,31 +458,9 @@ if (!modal) {
 function showGameOverModal(score) {
   modal.innerHTML = `<h3 style="margin:0 0 8px">游戏结束</h3><p>你的分数: ${score}</p><div style="display:flex;gap:8px;margin-top:8px"><button id="modal-save">保存分数</button><button id="modal-close">关闭</button></div>`;
   modal.style.display = 'block';
-  // 禁用输入并显示遮罩
-  setInputEnabled(false);
-  showOverlay('游戏结束');
-  document.getElementById('modal-close').addEventListener('click', () => { modal.style.display = 'none'; hideOverlay(); });
-  document.getElementById('modal-save').addEventListener('click', () => { document.getElementById('player-name').focus(); modal.style.display = 'none'; hideOverlay(); });
+  document.getElementById('modal-close').addEventListener('click', () => { modal.style.display = 'none'; });
+  document.getElementById('modal-save').addEventListener('click', () => { document.getElementById('player-name').focus(); modal.style.display = 'none'; });
 }
-
-// 页面遮罩层用于在暂停或结束时阻止误触
-let overlay = document.getElementById('ui-overlay');
-function ensureOverlay() {
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'ui-overlay';
-    overlay.style.position = 'fixed';
-    overlay.style.left = '0'; overlay.style.top = '0';
-    overlay.style.width = '100%'; overlay.style.height = '100%';
-    overlay.style.background = 'rgba(0,0,0,0.35)';
-    overlay.style.zIndex = '9998';
-    overlay.style.display = 'none';
-    overlay.style.pointerEvents = 'none'; // 初始不拦截事件
-    document.body.appendChild(overlay);
-  }
-}
-function showOverlay(text='') { ensureOverlay(); overlay.style.display = 'block'; overlay.textContent = text; overlay.style.pointerEvents = 'auto'; }
-function hideOverlay() { if (overlay) { overlay.style.display = 'none'; overlay.style.pointerEvents = 'none'; } }
 
 // 增加更多曲目到 musicLibrary（若尚未存在）
 (function addExtraTracks(){

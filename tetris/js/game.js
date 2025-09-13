@@ -202,22 +202,17 @@ export class TetrisGame {
     // 使用 bag/randomizer 生成，DOT 由概率注入
     this.current = this.nextFromBag();
     this.next = this.nextFromBag();
-    // 通知 UI：已重置，并明确 paused/gameOver 状态
-    this.onUpdate({score: this.score, level: this.level, lines: this.lines, paused: this.paused, gameOver: this.gameOver});
+    this.onUpdate({score: this.score, level: this.level, lines: this.lines});
   }
 
   start() {
     this.reset();
     this.lastTime = performance.now();
     this.loop(this.lastTime);
-    // 通知 UI：游戏已开始（非 paused、非 gameOver）
-    this.onUpdate({score: this.score, level: this.level, lines: this.lines, paused: false, gameOver: false});
   }
 
   pause() {
     this.paused = !this.paused;
-    // 报告暂停/继续状态，UI 可据此禁用输入
-    this.onUpdate({score: this.score, level: this.level, lines: this.lines, paused: this.paused, gameOver: this.gameOver});
   }
 
   loop(time) {
