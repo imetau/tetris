@@ -157,7 +157,35 @@ export class TetrisGame {
     for (const k of Object.keys(combined)) {
       this.shapeWeights[k] = (k === 'DOT') ? defaultDotWeight : 1;
     }
+
+    // 新增：bag 随机器和 DOT 注入概率设置
+    this.enabledShapes = Object.keys(combined);
+    this.dotProb = defaultDotWeight; // 单点方块出现概率控制（单独注入）
+    this.bag = [];
+    this.refillBag();
+
     this.reset();
+  }
+
+  // 使用洗牌的 bag（每种形状至少一次）来均匀分布方块，避免短期重复
+  refillBag() {
+    // 构建 bag，排除 DOT（DOT 通过概率独立注入）
+    this.bag = this.enabledShapes.filter(k => k !== 'DOT').slice();
+    // Fisher-Yates shuffle
+    for (let i = this.bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+    }
+  }
+  
+  // 从 bag 中取下一个方块；若触发 DOT 概率则返回 DOT
+  nextFromBag() {
+    if (this.shapeWeights['DOT'] && Math.random() < this.dotProb) {
+      return createPiece('DOT');
+    }
+    if (!this.bag || this.bag.length === 0) this.refillBag();
+    const key = this.bag.shift();
+    return createPiece(key);
   }
 
   reset() {
@@ -171,8 +199,9 @@ export class TetrisGame {
     this.gameOver = false;
     this.paused = false;
     // 使用权重地图生成方块
-    this.current = randomTetromino(this.shapeWeights);
-    this.next = randomTetromino(this.shapeWeights);
+    // 使用 bag/randomizer 生成，DOT 由概率注入
+    this.current = this.nextFromBag();
+    this.next = this.nextFromBag();
     this.onUpdate({score: this.score, level: this.level, lines: this.lines});
   }
 
@@ -246,27 +275,77 @@ export class TetrisGame {
       this.current.y++;
     } else {
       // 锁定方块
-      this.merge(this.current.matrix, this.current.x, this.current.y, this.current.type);
-      // 消行
-      const cleared = this.clearLines();
-      // 更新分数（经典机制：单行100、双行300、三行500、四行800）
-      const points = [0, 100, 300, 500, 800];
-      this.score += points[cleared] || 0;
-      this.lines += cleared;
-      // 升级规则：每消 10 行升一级（可调）
-      const newLevel = Math.floor(this.lines / 10) + 1;
-      if (newLevel !== this.level) {
-        this.level = newLevel;
-        this.dropInterval = Math.max(100, 800 - (this.level - 1) * 60);
-      }
-      // 获取下一个方块
-      this.current = this.next;
-      this.next = randomTetromino(this.shapePool);
-      // 如果新方块一放置就碰撞 => 游戏结束
-      if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
-        this.gameOver = true;
-        this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
-        return;
+      // 如果是单点 DOT，允许穿透其它方块并落到该列最底层的空位（最低的空单元格）
+      if (this.current.type === 'DOT') {
+        const col = this.current.x;
+        let targetY = -1;
+        for (let y = ROWS - 1; y >= 0; y--) {
+          if (!this.grid[y][col]) { targetY = y; break; }
+        }
+        if (targetY >= 0) {
+          this.grid[targetY][col] = 'DOT';
+          // 通知已放置（供 UI 播放音效）
+          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
+          // 消行并更新分数/等级
+          const cleared = this.clearLines();
+          const points = [0, 100, 300, 500, 800];
+          this.score += points[cleared] || 0;
+          this.lines += cleared;
+          const newLevel = Math.floor(this.lines / 10) + 1;
+          if (newLevel !== this.level) {
+            this.level = newLevel;
+            this.dropInterval = Math.max(100, 800 - (this.level - 1) * 60);
+          }
+          this.current = this.next;
+          this.next = this.nextFromBag();
+          if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
+            this.gameOver = true;
+            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+            return;
+          }
+        } else {
+          // 无可放置位置，回退为常规合并
+          this.merge(this.current.matrix, this.current.x, this.current.y, this.current.type);
+          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
+          const cleared = this.clearLines();
+          const points = [0, 100, 300, 500, 800];
+          this.score += points[cleared] || 0;
+          this.lines += cleared;
+          const newLevel = Math.floor(this.lines / 10) + 1;
+          if (newLevel !== this.level) {
+            this.level = newLevel;
+            this.dropInterval = Math.max(100, 800 - (this.level - 1) * 60);
+          }
+          this.current = this.next;
+          this.next = this.nextFromBag();
+          if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
+            this.gameOver = true;
+            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+            return;
+          }
+        }
+      } else {
+        // 常规模块合并
+        this.merge(this.current.matrix, this.current.x, this.current.y, this.current.type);
+        // 通知已放置（供 UI 播放音效）
+        try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
+        // 消行并更新分数/等级
+        const cleared = this.clearLines();
+        const points = [0, 100, 300, 500, 800];
+        this.score += points[cleared] || 0;
+        this.lines += cleared;
+        const newLevel = Math.floor(this.lines / 10) + 1;
+        if (newLevel !== this.level) {
+          this.level = newLevel;
+          this.dropInterval = Math.max(100, 800 - (this.level - 1) * 60);
+        }
+        this.current = this.next;
+        this.next = this.nextFromBag();
+        if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
+          this.gameOver = true;
+          this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+          return;
+        }
       }
     }
     this.onUpdate({score:this.score, level:this.level, lines:this.lines});
@@ -373,3 +452,6 @@ function randomKey() {
   const keys = Object.keys(SHAPES);
   return keys[Math.floor(Math.random() * keys.length)];
 }
+
+// weightedRandomKey 和 randomTetromino 已在文件中定义
+// 确保 TetrisGame 使用 this.shapeWeights 并在锁定时触发 placed 事件
