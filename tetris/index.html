@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tetris - 练习与高分保存</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="container">
+    <h1>Tetris</h1>
+
+    <section class="game-area">
+      <canvas id="game-canvas" width="240" height="480" aria-label="游戏画布"></canvas>
+
+      <aside class="panel">
+        <div class="scoreboard">
+          <div>分数: <span id="score">0</span></div>
+          <div>等级: <span id="level">1</span></div>
+          <div>行数: <span id="lines">0</span></div>
+        </div>
+
+        <div class="controls">
+          <button id="start-btn">开始</button>
+          <button id="pause-btn">暂停</button>
+          <button id="reset-btn">重置</button>
+        </div>
+
+        <div class="next-piece">
+          <h3>下一个</h3>
+          <canvas id="next-canvas" width="80" height="80" aria-label="下一个方块"></canvas> 
+        </div>
+
+        <div class="highscores">
+          <h3>本地排行榜</h3>
+          <ol id="highscore-list"></ol>
+          <form id="save-score-form" class="save-form">
+            <input id="player-name" maxlength="12" placeholder="你的名字" required />
+            <button type="submit">保存当前分数</button>
+          </form>
+        </div>
+      </aside>
+    </section>
+
+    <section class="help">
+      <h2>操作</h2>
+      <ul>
+        <li>方向键 ← →：左右移动</li>
+        <li>方向键 ↑：旋转</li>
+        <li>方向键 ↓：加速下落</li>
+        <li>空格：硬降落</li>
+      </ul>
+    </section>
+
+    <footer>可选后端 API 支持远程排行榜（见 README）</footer>
+  </main>
+
+  <script type="module" src="js/ui.js"></script>
+</body>
+</html>
