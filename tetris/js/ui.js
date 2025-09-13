@@ -35,6 +35,16 @@ function ensureAudioContext() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
+// 使 gameCanvas 可聚焦，以便恢复键盘输入
+gameCanvas.tabIndex = 0;
+nextCanvas.tabIndex = 0;
+
+// 读取并恢复静音设置
+const MUSIC_ENABLED_KEY = 'tetris_music_enabled';
+const MUSIC_SELECTED_KEY = 'tetris_music_selected';
+try { const stored = localStorage.getItem(MUSIC_ENABLED_KEY); if (stored !== null) musicEnabled = stored === 'true'; } catch(e) {}
+
+// 音效函数（简短）
 function playTone(freq, duration = 0.2, type = 'sine', when = 0) {
   ensureAudioContext();
   const o = audioCtx.createOscillator();
@@ -48,84 +58,85 @@ function playTone(freq, duration = 0.2, type = 'sine', when = 0) {
   o.stop(start + duration);
 }
 
+// 将之前的曲目生成函数抽出为全局工厂，供选择与预览使用
+function makeAmbientTrack(rootFreq = 220) {
+  const events = [];
+  const duration = 24.0;
+  const chords = [ [0,4,7], [5,9,12], [7,11,14], [4,7,11] ];
+  for (let i=0;i<duration;i+=4) {
+    const chord = chords[(i/4)%chords.length];
+    for (const interval of chord) {
+      events.push({t:i, freq: rootFreq * Math.pow(2, interval/12), dur:4.0, type:'sine', gain:0.02});
+    }
+  }
+  for (let i=0;i<duration;i+=0.5) {
+    const step = Math.floor((i*2) % 6);
+    const freq = rootFreq * Math.pow(2, (step*2)/12);
+    events.push({t:i+0.05, freq, dur:0.18, type:'triangle', gain:0.04});
+  }
+  return {events, duration};
+}
+function makeRhythmicTrack(rootFreq = 110) {
+  const events = [];
+  const duration = 22.0;
+  for (let i=0;i<duration;i+=0.5) {
+    events.push({t:i, freq: rootFreq, dur:0.16, type:'sawtooth', gain:0.06});
+    if (Math.floor(i) % 1 === 0) {
+      events.push({t:i+0.08, freq: rootFreq * 3.5, dur:0.28, type:'sine', gain:0.03});
+    }
+  }
+  for (let i=0.25;i<duration;i+=1.25) {
+    const freq = rootFreq * Math.pow(2, (Math.floor(i*2)%7)/12);
+    events.push({t:i+0.02, freq, dur:0.22, type:'triangle', gain:0.035});
+  }
+  return {events, duration};
+}
+function makeSequenceTrack(rootFreq = 196) {
+  const events = [];
+  const duration = 26.0;
+  for (let i=0;i<duration;i+=6) {
+    const intervals = [0,7,12];
+    for (const it of intervals) events.push({t:i, freq: rootFreq * Math.pow(2, it/12), dur:6.0, type:'sine', gain:0.018});
+  }
+  for (let i=0;i<duration;i+=0.6) {
+    const step = Math.floor(i / 0.6) % 8;
+    const freq = rootFreq * Math.pow(2, (step*3 % 12)/12);
+    events.push({t:i+0.05, freq, dur:0.38, type:'sine', gain:0.04});
+  }
+  return {events, duration};
+}
+
+// 音乐库（可扩展）
+const musicLibrary = [
+  { id: 0, name: '氛围曲 A', make: () => makeAmbientTrack(220) },
+  { id: 1, name: '节奏曲 B', make: () => makeRhythmicTrack(110) },
+  { id: 2, name: '序列曲 C', make: () => makeSequenceTrack(196) },
+  // 可额外增加更多曲目
+];
+
+// 音乐播放状态与计划
+const musicState = { scheduled: [], trackIndex:0, tracks:[], nextTimeout:null, playing:false, selectedIndices: [] };
+// 恢复已选择的曲目（或默认全部）
+try {
+  const sel = JSON.parse(localStorage.getItem(MUSIC_SELECTED_KEY) || 'null');
+  if (Array.isArray(sel) && sel.length) musicState.selectedIndices = sel; else musicState.selectedIndices = musicLibrary.map(t=>t.id);
+} catch(e) { musicState.selectedIndices = musicLibrary.map(t=>t.id); }
+
+// 播放一个轨道并安排后续（使用选中的轨目池）
 function startMusicLoop() {
   if (!musicEnabled) return;
   ensureAudioContext();
-  if (musicInterval) return; // already running (旧名保留)
-  // 新的实现：多首长曲目调度播放，自动切换且不重复
-  const tracks = [];
-
-  // 生成一个环境音轨（和弦 pad + 分解琶音），长度约 24s
-  function makeAmbientTrack(rootFreq = 220) {
-    const events = [];
-    const duration = 24.0; // seconds
-    // 和弦 pad: 每 4s 一个和弦
-    const chords = [ [0,4,7], [5,9,12], [7,11,14], [4,7,11] ];
-    for (let i=0;i<duration;i+=4) {
-      const chord = chords[(i/4)%chords.length];
-      for (const interval of chord) {
-        events.push({t:i, freq: rootFreq * Math.pow(2, interval/12), dur:4.0, type:'sine', gain:0.02});
-      }
-    }
-    // 分解琶音：短音每 0.5s
-    for (let i=0;i<duration;i+=0.5) {
-      const step = Math.floor((i*2) % 6);
-      const freq = rootFreq * Math.pow(2, (step*2)/12);
-      events.push({t:i+0.05, freq, dur:0.18, type:'triangle', gain:0.04});
-    }
-    return {events, duration};
-  }
-
-  // 生成一首带低音脉动与钟（约 22s）
-  function makeRhythmicTrack(rootFreq = 110) {
-    const events = [];
-    const duration = 22.0;
-    // 低音脉冲，每 0.5s 一个短音
-    for (let i=0;i<duration;i+=0.5) {
-      events.push({t:i, freq: rootFreq, dur:0.16, type:'sawtooth', gain:0.06});
-      // 伴随高音钟声每 1s
-      if (Math.floor(i) % 1 === 0) {
-        events.push({t:i+0.08, freq: rootFreq * 3.5, dur:0.28, type:'sine', gain:0.03});
-      }
-    }
-    // 点缀旋律
-    for (let i=0.25;i<duration;i+=1.25) {
-      const freq = rootFreq * Math.pow(2, (Math.floor(i*2)%7)/12);
-      events.push({t:i+0.02, freq, dur:0.22, type:'triangle', gain:0.035});
-    }
-    return {events, duration};
-  }
-
-  // 生成温柔的序列乐曲（约 26s）
-  function makeSequenceTrack(rootFreq = 196) {
-    const events = [];
-    const duration = 26.0;
-    // 软垫和弦
-    for (let i=0;i<duration;i+=6) {
-      const intervals = [0,7,12];
-      for (const it of intervals) events.push({t:i, freq: rootFreq * Math.pow(2, it/12), dur:6.0, type:'sine', gain:0.018});
-    }
-    // 旋律走向，较长的音符和延音
-    for (let i=0;i<duration;i+=0.6) {
-      const step = Math.floor(i / 0.6) % 8;
-      const freq = rootFreq * Math.pow(2, (step*3 % 12)/12);
-      events.push({t:i+0.05, freq, dur:0.38, type:'sine', gain:0.04});
-    }
-    return {events, duration};
-  }
-
-  tracks.push(makeAmbientTrack(220));
-  tracks.push(makeRhythmicTrack(110));
-  tracks.push(makeSequenceTrack(196));
-
-  // 全局调度容器，便于停止
-  musicState.scheduled = [];
-  musicState.trackIndex = 0;
+  // 清理上一次
+  stopMusicLoop();
+  // 根据选中构建 tracks
+  const tracks = musicState.selectedIndices.map(i => (musicLibrary.find(t=>t.id===i)||musicLibrary[0]).make());
+  if (!tracks.length) return;
   musicState.tracks = tracks;
   musicState.playing = true;
+  musicState.trackIndex = 0;
 
   function scheduleTrack(idx) {
-    const tr = tracks[idx];
+    const tr = musicState.tracks[idx];
     const startAt = audioCtx.currentTime + 0.05;
     for (const ev of tr.events) {
       const o = audioCtx.createOscillator();
@@ -144,20 +155,16 @@ function startMusicLoop() {
       musicState.scheduled.push(o);
       musicState.scheduled.push(g);
     }
-    // 安排下一首在当前结束后播放（选择不重复）
     if (musicState.nextTimeout) clearTimeout(musicState.nextTimeout);
     musicState.nextTimeout = setTimeout(() => {
       if (!musicState.playing) return;
-      // 选择不同曲目
-      let next = Math.floor(Math.random() * tracks.length);
-      if (tracks.length > 1 && next === musicState.trackIndex) next = (next + 1) % tracks.length;
-      musicState.trackIndex = next;
+      // 从已选曲目中随机选择且避免与当前相同
+      let next = Math.floor(Math.random() * musicState.tracks.length);
+      if (musicState.tracks.length > 1 && next === idx) next = (next + 1) % musicState.tracks.length;
       scheduleTrack(next);
     }, (tr.duration * 1000) - 200);
   }
-
-  // 启动第一首
-  scheduleTrack(0);
+  scheduleTrack(musicState.trackIndex);
 }
 
 function stopMusicLoop() {
@@ -172,41 +179,83 @@ function stopMusicLoop() {
   musicState.playing = false;
 }
 
-// 音乐状态记录（用于停止时清理）
-const musicState = { scheduled: [], trackIndex:0, tracks:[], nextTimeout:null, playing:false };
-
-// 在 UI 中添加曲目选择器
-let musicSelect = document.getElementById('music-select');
-if (!musicSelect) {
-  musicSelect = document.createElement('select');
-  musicSelect.id = 'music-select';
-  musicSelect.style.marginTop = '8px';
-  const panel = document.querySelector('.panel');
-  const optA = document.createElement('option'); optA.value='0'; optA.textContent='氛围曲 A';
-  const optB = document.createElement('option'); optB.value='1'; optB.textContent='节奏曲 B';
-  const optC = document.createElement('option'); optC.value='2'; optC.textContent='序列曲 C';
-  musicSelect.appendChild(optA); musicSelect.appendChild(optB); musicSelect.appendChild(optC);
-  panel.appendChild(musicSelect);
+// 预览一首曲目（只播放短片段）
+function previewTrackById(id) {
+  stopMusicLoop();
+  ensureAudioContext();
+  const tr = (musicLibrary.find(t=>t.id===id)||musicLibrary[0]).make();
+  const startAt = audioCtx.currentTime + 0.05;
+  const stopAfter = Math.min(6000, tr.duration*1000);
+  const scheduled = [];
+  for (const ev of tr.events) {
+    if (ev.t*1000 > stopAfter) break;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = ev.type || 'sine';
+    o.frequency.value = ev.freq;
+    o.connect(g); g.connect(audioCtx.destination);
+    const s = startAt + ev.t;
+    const e = s + (ev.dur || 0.2);
+    g.gain.setValueAtTime(0, s);
+    g.gain.linearRampToValueAtTime(ev.gain || 0.03, s + 0.02);
+    g.gain.linearRampToValueAtTime(0.0001, e);
+    o.start(s);
+    o.stop(e + 0.02);
+    scheduled.push(o); scheduled.push(g);
+  }
+  setTimeout(() => { for (const n of scheduled) { try { if (n.stop) n.stop(); } catch(e){} try { if (n.disconnect) n.disconnect(); } catch(e){} } }, stopAfter + 100);
 }
 
-musicSelect.addEventListener('change', () => {
-  // 切换曲目：停止并播放所选曲目
-  const idx = Number(musicSelect.value || 0);
-  if (musicState.playing) {
-    stopMusicLoop();
-    musicState.trackIndex = idx;
-    musicState.tracks = musicState.tracks; // 保持
-    musicState.playing = false;
-    // 启动并直接调度所选曲目
-    // 我们复用 startMusicLoop 的内部 schedule 调度
-    // 通过设置 musicState.trackIndex 并调用 schedule
-    // 简单方式：直接调用 startMusicLoop 再设为所选索引
-    musicState.trackIndex = idx;
-    startMusicLoop();
-  } else {
-    // 仅记录索引，下一次播放时使用
-    musicState.trackIndex = idx;
+// 在 UI 中创建可勾选曲目列表与预览按钮
+let musicList = document.getElementById('music-list');
+if (!musicList) {
+  musicList = document.createElement('div');
+  musicList.id = 'music-list';
+  musicList.style.marginTop = '8px';
+  const panel = document.querySelector('.panel');
+  panel.appendChild(musicList);
+}
+function renderMusicList() {
+  musicList.innerHTML = '<strong>曲目列表</strong><br/>';
+  for (const track of musicLibrary) {
+    const id = track.id;
+    const checked = musicState.selectedIndices.includes(id);
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.value=id; cb.checked=checked; cb.id = 'music-cb-'+id;
+    const label = document.createElement('label'); label.htmlFor = cb.id; label.style.marginRight='8px'; label.textContent = track.name;
+    const preview = document.createElement('button'); preview.textContent='预览'; preview.style.marginLeft='6px';
+    preview.addEventListener('click', (e)=>{ e.preventDefault(); previewTrackById(id); });
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        if (!musicState.selectedIndices.includes(id)) musicState.selectedIndices.push(id);
+      } else {
+        musicState.selectedIndices = musicState.selectedIndices.filter(x=>x!==id);
+      }
+      try { localStorage.setItem(MUSIC_SELECTED_KEY, JSON.stringify(musicState.selectedIndices)); } catch(e){}
+    });
+    const row = document.createElement('div');
+    row.appendChild(cb); row.appendChild(label); row.appendChild(preview);
+    musicList.appendChild(row);
   }
+}
+renderMusicList();
+
+// 在 UI 中添加音乐控制按钮（如果尚未添加）
+let musicBtn = document.getElementById('music-btn');
+if (!musicBtn) {
+  musicBtn = document.createElement('button');
+  musicBtn.id = 'music-btn';
+  musicBtn.style.marginTop = '8px';
+  const panel = document.querySelector('.panel');
+  panel.appendChild(musicBtn);
+}
+function updateMusicBtnText() { musicBtn.textContent = musicEnabled ? '静音' : '播放音乐'; }
+updateMusicBtnText();
+
+musicBtn.addEventListener('click', () => {
+  musicEnabled = !musicEnabled;
+  try { localStorage.setItem(MUSIC_ENABLED_KEY, String(musicEnabled)); } catch(e){}
+  updateMusicBtnText();
+  if (musicEnabled) startMusicLoop(); else stopMusicLoop();
 });
 
 // 新增：异形方块开关和 DOT 权重控件
@@ -241,6 +290,22 @@ function playEffect(type) {
   }
 }
 
+// 更丰富的消行音效，基于同时消除层数播放更兴奋的效果
+function playClearEffect(lines) {
+  ensureAudioContext();
+  if (!lines || lines <= 0) return;
+  if (lines === 1) {
+    playTone(440, 0.12, 'triangle');
+  } else if (lines === 2) {
+    playTone(520, 0.14, 'sine'); setTimeout(()=>playTone(660,0.12,'triangle'),120);
+  } else if (lines === 3) {
+    playTone(660, 0.18, 'sawtooth'); setTimeout(()=>playTone(880,0.14,'triangle'),120); setTimeout(()=>playTone(1040,0.1,'square'),240);
+  } else {
+    // 4 行或以上，短促兴奋序列
+    playTone(880,0.12,'sawtooth'); setTimeout(()=>playTone(1100,0.12,'sine'),100); setTimeout(()=>playTone(1320,0.16,'triangle'),220);
+  }
+}
+
 function createGameFromUI() {
   const opts = {
     extraShapes: !!extraCheckbox.checked,
@@ -249,6 +314,8 @@ function createGameFromUI() {
   game = new TetrisGame(ctx, nextCtx, (state) => {
     // 播放放置音
     if (state.placed) playEffect('place');
+    // 播放消行音效（如果有）
+    if (state.cleared && state.cleared > 0) playClearEffect(state.cleared);
     scoreEl.textContent = state.score ?? 0;
     levelEl.textContent = state.level ?? 1;
     linesEl.textContent = state.lines ?? 0;
@@ -260,6 +327,8 @@ function createGameFromUI() {
       renderHighscores();
     }
   }, opts);
+  // 创建后尝试恢复焦点到 canvas，确保键盘可用
+  try { gameCanvas.focus(); } catch(e){}
 }
 
 // 初始化游戏
@@ -282,8 +351,8 @@ pauseBtn.addEventListener('click', () => {
 resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); stopMusicLoop(); });
 
 // 当用户更改额外方块开关或 DOT 权重时，重建游戏以生效（保留分数会重置）
-extraCheckbox.addEventListener('change', () => { createGameFromUI(); renderHighscores(); });
-dotRange.addEventListener('change', () => { createGameFromUI(); renderHighscores(); });
+extraCheckbox.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); try{ gameCanvas.focus(); }catch(e){} });
+dotRange.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); try{ gameCanvas.focus(); }catch(e){} });
 
 // 键盘事件（避免与页面默认滚动冲突）
 window.addEventListener('keydown', (e) => {

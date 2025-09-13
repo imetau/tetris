@@ -271,6 +271,7 @@ export class TetrisGame {
 
   drop() {
     // 尝试下移一格
+    let cleared = 0;
     if (!this.collide(this.current.matrix, this.current.x, this.current.y + 1)) {
       this.current.y++;
     } else {
@@ -285,9 +286,9 @@ export class TetrisGame {
         if (targetY >= 0) {
           this.grid[targetY][col] = 'DOT';
           // 通知已放置（供 UI 播放音效）
-          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
+          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines, cleared: 0 }); } catch(e){}
           // 消行并更新分数/等级
-          const cleared = this.clearLines();
+          cleared = this.clearLines();
           const points = [0, 100, 300, 500, 800];
           this.score += points[cleared] || 0;
           this.lines += cleared;
@@ -300,14 +301,14 @@ export class TetrisGame {
           this.next = this.nextFromBag();
           if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
             this.gameOver = true;
-            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true, cleared});
             return;
           }
         } else {
           // 无可放置位置，回退为常规合并
           this.merge(this.current.matrix, this.current.x, this.current.y, this.current.type);
-          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
-          const cleared = this.clearLines();
+          try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines, cleared: 0 }); } catch(e){}
+          cleared = this.clearLines();
           const points = [0, 100, 300, 500, 800];
           this.score += points[cleared] || 0;
           this.lines += cleared;
@@ -320,7 +321,7 @@ export class TetrisGame {
           this.next = this.nextFromBag();
           if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
             this.gameOver = true;
-            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+            this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true, cleared});
             return;
           }
         }
@@ -328,9 +329,9 @@ export class TetrisGame {
         // 常规模块合并
         this.merge(this.current.matrix, this.current.x, this.current.y, this.current.type);
         // 通知已放置（供 UI 播放音效）
-        try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines }); } catch(e){}
+        try { this.onUpdate({ placed: true, score: this.score, level: this.level, lines: this.lines, cleared: 0 }); } catch(e){}
         // 消行并更新分数/等级
-        const cleared = this.clearLines();
+        cleared = this.clearLines();
         const points = [0, 100, 300, 500, 800];
         this.score += points[cleared] || 0;
         this.lines += cleared;
@@ -343,12 +344,13 @@ export class TetrisGame {
         this.next = this.nextFromBag();
         if (this.collide(this.current.matrix, this.current.x, this.current.y)) {
           this.gameOver = true;
-          this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true});
+          this.onUpdate({score:this.score, level:this.level, lines:this.lines, gameOver:true, cleared});
           return;
         }
       }
     }
-    this.onUpdate({score:this.score, level:this.level, lines:this.lines});
+    // 最终更新，包含 cleared（若为 0 则表示本次无消行）
+    this.onUpdate({score:this.score, level:this.level, lines:this.lines, cleared});
   }
 
   hardDrop() {
