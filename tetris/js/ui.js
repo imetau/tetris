@@ -116,16 +116,42 @@ const musicLibrary = [
 
 // 音乐播放状态与计划
 const musicState = { scheduled: [], trackIndex:0, tracks:[], nextTimeout:null, playing:false, selectedIndices: [] };
-// 恢复已选择的曲目（或默认全部）
-try {
-  const sel = JSON.parse(localStorage.getItem(MUSIC_SELECTED_KEY) || 'null');
-  if (Array.isArray(sel) && sel.length) musicState.selectedIndices = sel; else musicState.selectedIndices = musicLibrary.map(t=>t.id);
-} catch(e) { musicState.selectedIndices = musicLibrary.map(t=>t.id); }
+// 预览播放状态
+let isPreviewing = false;
+let previewActiveScheduled = [];
+let previewTimers = {};
+
+// 输入控制（键盘/触控）
+let inputEnabled = true;
+function setInputEnabled(enabled) {
+  inputEnabled = !!enabled;
+  // touch controls buttons
+  [leftBtn, rightBtn, rotBtn, downBtn, dropBtn].forEach(b => { if (b) b.disabled = !inputEnabled; });
+}
+
+function stopPreview() {
+  // 清理预览调度
+  if (isPreviewing) {
+    for (const n of previewActiveScheduled) {
+      try { if (n.stop) n.stop(); } catch(e){}
+      try { if (n.disconnect) n.disconnect(); } catch(e){}
+    }
+    previewActiveScheduled = [];
+    // 清 timers
+    for (const k in previewTimers) { try { clearInterval(previewTimers[k]); } catch(e){} previewTimers[k]=null; }
+    // 重新启用所有预览按钮
+    const previews = document.querySelectorAll('#music-list button');
+    previews.forEach(b => { try { b.disabled = false; } catch(e){} });
+    isPreviewing = false;
+  }
+}
 
 // 播放一个轨道并安排后续（使用选中的轨目池）
 function startMusicLoop() {
   if (!musicEnabled) return;
   ensureAudioContext();
+  // 停止任何预览，避免混音
+  stopPreview();
   // 清理上一次
   stopMusicLoop();
   // 根据选中构建 tracks
@@ -181,8 +207,14 @@ function stopMusicLoop() {
 
 // 预览一首曲目（只播放短片段）
 function previewTrackById(id) {
+  // 先停止可能存在的预览或主播放
+  stopPreview();
   stopMusicLoop();
   ensureAudioContext();
+  isPreviewing = true;
+  // 禁用所有预览按钮，防止同时点击
+  const previews = document.querySelectorAll('#music-list button');
+  previews.forEach(b => { try { b.disabled = true; } catch(e){} });
   const tr = (musicLibrary.find(t=>t.id===id)||musicLibrary[0]).make();
   const startAt = audioCtx.currentTime + 0.05;
   const stopAfter = Math.min(8000, tr.duration*1000); // 8s 片段
@@ -205,6 +237,7 @@ function previewTrackById(id) {
     o.start(s);
     o.stop(e + 0.02);
     scheduled.push(o); scheduled.push(g);
+    previewActiveScheduled.push(o); previewActiveScheduled.push(g);
   }
   // 更新进度
   if (previewTimers[id]) { clearInterval(previewTimers[id]); previewTimers[id] = null; }
@@ -215,12 +248,15 @@ function previewTrackById(id) {
       clearInterval(previewTimers[id]); previewTimers[id] = null;
       for (const n of scheduled) { try{ if (n.stop) n.stop(); }catch(e){} try{ if (n.disconnect) n.disconnect(); }catch(e){} }
       if (progEl) progEl.value = 0;
+      // 结束预览
+      stopPreview();
     }
   }, 100);
   setTimeout(() => {
     if (previewTimers[id]) { clearInterval(previewTimers[id]); previewTimers[id] = null; }
     for (const n of scheduled) { try{ if (n.stop) n.stop(); }catch(e){} try{ if (n.disconnect) n.disconnect(); }catch(e){} }
     if (progEl) progEl.value = 0;
+    stopPreview();
   }, stopAfter + 200);
 }
 
@@ -361,11 +397,13 @@ pauseBtn.addEventListener('click', () => {
 resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); stopMusicLoop(); });
 
 // 当用户更改额外方块开关或 DOT 权重时，重建游戏以生效（保留分数会重置）
-extraCheckbox.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); try{ gameCanvas.focus(); }catch(e){} });
-dotRange.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); try{ gameCanvas.focus(); }catch(e){} });
+extraCheckbox.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); // 延迟 focus，确保 DOM 更新后生效
+  setTimeout(()=>{ try{ gameCanvas.focus(); }catch(e){} }, 120); });
+dotRange.addEventListener('change', () => { createGameFromUI(); renderHighscores(); extraCheckbox.blur(); setTimeout(()=>{ try{ gameCanvas.focus(); }catch(e){} }, 120); });
 
 // 键盘事件（避免与页面默认滚动冲突）
 window.addEventListener('keydown', (e) => {
+  if (!inputEnabled) return; // 当禁用输入（暂停/结束）时忽略
   if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
   switch (e.code) {
     case 'ArrowLeft': e.preventDefault(); game.move(-1); break;
@@ -464,3 +502,11 @@ dropBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.hardDrop
   downBtn.addEventListener(evt, ()=>{ if (downBtn._holdId) { clearInterval(downBtn._holdId); downBtn._holdId = null; } });
 });
 [ leftBtn, rightBtn, rotBtn, downBtn, dropBtn ].forEach(b=> touchControls.appendChild(b));
+
+// 触控按钮标签替换为符号
+rotBtn.textContent = '⟲';
+
+// 创建后尝试恢复焦点到 canvas，确保键盘可用
+function focusCanvasDelayed() { try{ setTimeout(()=>{ gameCanvas.focus(); },50); }catch(e){} }
+
+// 在 createGameFromUI 调用后使用延迟聚焦
