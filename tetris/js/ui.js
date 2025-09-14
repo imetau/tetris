@@ -140,12 +140,16 @@ let isPreviewing = false;
 let previewActiveScheduled = [];
 let previewTimers = {};
 
+// --- fix: declare touch button vars early so setInputEnabled can reference them safely ---
+let leftBtn, rightBtn, rotBtn, downBtn, dropBtn;
+
 // 输入控制（键盘/触控）
 let inputEnabled = true;
 function setInputEnabled(enabled) {
   inputEnabled = !!enabled;
   // touch controls buttons
-  [leftBtn, rightBtn, rotBtn, downBtn, dropBtn].forEach(b => { if (b) b.disabled = !inputEnabled; });
+  const btns = [leftBtn, rightBtn, rotBtn, downBtn, dropBtn];
+  btns.forEach(b => { try { if (b) b.disabled = !inputEnabled; } catch(e){} });
 }
 
 function stopPreview() {
@@ -285,7 +289,7 @@ if (!musicList) {
   musicList = document.createElement('div');
   musicList.id = 'music-list';
   musicList.style.marginTop = '8px';
-  const panel = document.querySelector('.panel');
+  const panel = document.querySelector('.right-panel') || document.querySelector('.panel') || document.body;
   panel.appendChild(musicList);
 }
 function renderMusicList() {
@@ -319,117 +323,101 @@ function renderMusicList() {
 }
 renderMusicList();
 
-// 确保 canvas 在点击或触摸时获得焦点，修复切换选项后键盘无效问题
-gameCanvas.addEventListener('click', ()=> { try{ gameCanvas.focus(); }catch(e){} });
-gameCanvas.addEventListener('touchstart', ()=> { try{ gameCanvas.focus(); }catch(e){} }, {passive:true});
-
-// 新增：异形方块开关和 DOT 权重控件，插入到 new holder 中
-let extraControlsHolder = document.getElementById('extra-controls-holder');
-if (!extraControlsHolder) extraControlsHolder = document.body;
-let extraControls = document.getElementById('extra-controls');
-if (!extraControls) {
-  extraControls = document.createElement('div');
-  extraControls.id = 'extra-controls';
-  extraControls.style.marginTop = '8px';
-  extraControls.innerHTML = `
-    <label><input type="checkbox" id="extra-shapes-checkbox"> 启用异形方块</label><br/>
-    <label>DOT 概率: <input type="range" id="dot-weight-range" min="0" max="0.5" step="0.01" value="0.05"> <span id="dot-weight-value">0.05</span></label>
-  `;
-  extraControlsHolder.appendChild(extraControls);
-}
-
-const extraCheckbox = document.getElementById('extra-shapes-checkbox');
-const dotRange = document.getElementById('dot-weight-range');
-const dotValue = document.getElementById('dot-weight-value');
-dotValue.textContent = dotRange.value;
-dotRange.addEventListener('input', () => { dotValue.textContent = dotRange.value; });
-
-// 游戏实例化逻辑：根据 UI 创建或重建游戏
-let game = null;
-// 简单音效：放置、开始、结束
-function playEffect(type) {
-  ensureAudioContext();
-  switch(type) {
-    case 'place': playTone(220, 0.06, 'square'); break;
-    case 'start': playTone(880, 0.2, 'sine'); setTimeout(()=>playTone(660,0.15,'sine'),200); break;
-    case 'gameover': playTone(130, 0.4, 'sawtooth'); break;
-  }
-}
-
-// 更丰富的消行音效，基于同时消除层数播放更兴奋的效果
-function playClearEffect(lines) {
-  ensureAudioContext();
-  if (!lines || lines <= 0) return;
-  if (lines === 1) {
-    playTone(440, 0.12, 'triangle');
-  } else if (lines === 2) {
-    playTone(520, 0.14, 'sine'); setTimeout(()=>playTone(660,0.12,'triangle'),120);
-  } else if (lines === 3) {
-    playTone(660, 0.18, 'sawtooth'); setTimeout(()=>playTone(880,0.14,'triangle'),120); setTimeout(()=>playTone(1040,0.1,'square'),240);
-  } else {
-    // 4 行或以上，短促兴奋序列
-    playTone(880,0.12,'sawtooth'); setTimeout(()=>playTone(1100,0.12,'sine'),100); setTimeout(()=>playTone(1320,0.16,'triangle'),220);
-  }
-}
-
-function createGameFromUI() {
-  const opts = {
-    extraShapes: !!extraCheckbox.checked,
-    dotWeight: parseFloat(dotRange.value)
-  };
-  // 先确保画布尺寸匹配
-  adaptCanvasDisplaySize();
-  game = new TetrisGame(ctx, nextCtx, (state) => {
-    // 根据 state.paused/gameOver 控制输入
-    if (state.paused || state.gameOver) setInputEnabled(false); else setInputEnabled(true);
-
-    // 播放放置音
-    if (state.placed) playEffect('place');
-    // 播放消行音效（如果有）
-    if (state.cleared && state.cleared > 0) playClearEffect(state.cleared);
-    scoreEl.textContent = state.score ?? 0;
-    levelEl.textContent = state.level ?? 1;
-    linesEl.textContent = state.lines ?? 0;
-    if (state.gameOver) {
-      stopMusicLoop();
-      playEffect('gameover');
-      // 在页面中显示 modal 而不是 alert
-      showGameOverModal(state.score);
-      renderHighscores();
+// 渲染本地排行榜
+function renderHighscores() {
+  try {
+    const list = getLocalScores(10);
+    if (!highscoreList) return;
+    highscoreList.innerHTML = '';
+    for (const e of list) {
+      const li = document.createElement('li');
+      li.textContent = `${e.name} — ${e.score}`;
+      highscoreList.appendChild(li);
     }
-  }, opts);
-  // 创建后尝试恢复焦点到 canvas，确保键盘可用
-  focusCanvasDelayed();
-  // 隐藏可能遗留的遮罩，确保按钮可点
-  hideOverlay();
-  // 默认刚创建游戏时禁用输入，待玩家按开始启用
-  setInputEnabled(false);
+  } catch (e) { console.warn('renderHighscores failed', e); }
 }
 
-// 将按钮事件改为基于当前 game 实例
-startBtn.addEventListener('click', () => {
-  // 点击视为用户交互，解锁音频
-  ensureAudioContext();
-  playEffect('start');
-  if (musicEnabled) startMusicLoop();
-  if (game) game.start();
-  renderHighscores();
-  // 隐藏遮罩并启用输入
-  hideOverlay();
-  setInputEnabled(true);
-});
+// 保存分数表单处理
+if (saveForm) {
+  saveForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    try {
+      const name = (playerName && playerName.value) ? playerName.value.trim() : '匿名';
+      const score = (game && typeof game.score === 'number') ? game.score : 0;
+      saveLocalScore(name, score);
+      renderHighscores();
+      // 清理输入
+      if (playerName) playerName.value = '';
+    } catch (err) { console.error('保存分数失败', err); }
+  });
+}
 
-// welcome overlay
-const welcomeStart = document.getElementById('welcome-start');
-if (welcomeStart) welcomeStart.addEventListener('click', (e)=>{ e.preventDefault(); createGameFromUI(); if (game) game.start(); hideOverlay(); setInputEnabled(true); });
+// 当切换额外异形或 DOT 概率时重建游戏实例
+if (extraCheckbox) {
+  extraCheckbox.addEventListener('change', () => {
+    try {
+      const wasRunning = game && !game.paused && !game.gameOver;
+      createGameFromUI();
+      if (wasRunning && game) game.start();
+    } catch(e) { console.warn('重建游戏失败', e); }
+  });
+}
+if (dotRange) {
+  dotRange.addEventListener('change', () => {
+    try {
+      const wasRunning = game && !game.paused && !game.gameOver;
+      createGameFromUI();
+      if (wasRunning && game) game.start();
+    } catch(e) { console.warn('更新 DOT 概率失败', e); }
+  });
+}
 
-pauseBtn.addEventListener('click', () => {
-  if (!game) return;
-  game.pause();
-  pauseBtn.textContent = game.paused ? '继续' : '暂停';
-  if (game.paused) { stopMusicLoop(); setInputEnabled(false); } else if (musicEnabled) { startMusicLoop(); setInputEnabled(true); }
-});
-resetBtn.addEventListener('click', () => { if (!game) createGameFromUI(); game.reset(); renderHighscores(); stopMusicLoop(); setInputEnabled(false); hideOverlay(); });
+// 确保在页面加载时画布按视口调整一次
+try{ adaptCanvasDisplaySize(); }catch(e){}
+
+// 为主按钮添加防御性绑定（若缺失则不抛异常）
+if (startBtn) {
+  startBtn.removeEventListener && startBtn.removeEventListener('click', startBtn._handler);
+  startBtn._handler = (e) => {
+    try {
+      ensureAudioContext();
+      playEffect('start');
+      if (musicEnabled) startMusicLoop();
+      if (game) game.start();
+      renderHighscores();
+      hideOverlay();
+      setInputEnabled(true);
+    } catch(err){ console.error('start handler error', err); }
+  };
+  startBtn.addEventListener('click', startBtn._handler);
+}
+if (pauseBtn) {
+  pauseBtn.removeEventListener && pauseBtn.removeEventListener('click', pauseBtn._handler);
+  pauseBtn._handler = (e) => {
+    try {
+      if (!game) return;
+      game.pause();
+      pauseBtn.textContent = game.paused ? '继续' : '暂停';
+      if (game.paused) { stopMusicLoop(); setInputEnabled(false); } else if (musicEnabled) { startMusicLoop(); setInputEnabled(true); }
+    } catch(err){ console.error('pause handler error', err); }
+  };
+  pauseBtn.addEventListener('click', pauseBtn._handler);
+}
+if (resetBtn) {
+  resetBtn.removeEventListener && resetBtn.removeEventListener('click', resetBtn._handler);
+  resetBtn._handler = (e) => {
+    try {
+      if (!game) createGameFromUI();
+      if (game) game.reset();
+      renderHighscores();
+      stopMusicLoop();
+      setInputEnabled(false);
+      hideOverlay();
+      showWelcomeOverlay();
+    } catch(err){ console.error('reset handler error', err); }
+  };
+  resetBtn.addEventListener('click', resetBtn._handler);
+}
 
 // 页面内 modal 实现
 let modal = document.getElementById('gameover-modal');
@@ -507,15 +495,16 @@ if (!touchControls) {
 function makeBtn(label, w=64, h=64) {
   const b = document.createElement('button'); b.textContent = label; b.style.width = w+'px'; b.style.height = h+'px'; b.style.borderRadius = '12px'; b.style.fontSize='18px'; b.style.opacity='0.9'; b.style.touchAction='none'; return b;
 }
-const leftBtn = makeBtn('←'); const rightBtn = makeBtn('→'); const rotBtn = makeBtn('旋'); const downBtn = makeBtn('↓'); const dropBtn = makeBtn('⬇');
-leftBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.move(-1); });
-rightBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.move(1); });
-rotBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.rotateCurrent(); });
+// assign to previously declared vars (not const)
+leftBtn = makeBtn('←'); rightBtn = makeBtn('→'); rotBtn = makeBtn('旋'); downBtn = makeBtn('↓'); dropBtn = makeBtn('⬇');
+leftBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); try{ game.move(-1); }catch(e){} });
+rightBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); try{ game.move(1); }catch(e){} });
+rotBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); try{ game.rotateCurrent(); }catch(e){} });
 downBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); // 连续下落
   let id = setInterval(()=>{ try{ game.drop(); }catch(e){} }, 120); downBtn._holdId = id;
 });
 downBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); if (downBtn._holdId) { clearInterval(downBtn._holdId); downBtn._holdId = null; } });
-dropBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); game.hardDrop(); });
+dropBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); try{ game.hardDrop(); }catch(e){} });
 // 在 pointerup 时也清理可能的 hold
 ['pointerup','pointercancel','pointerleave'].forEach(evt => {
   downBtn.addEventListener(evt, ()=>{ if (downBtn._holdId) { clearInterval(downBtn._holdId); downBtn._holdId = null; } });
