@@ -497,3 +497,6 @@ rotBtn.textContent = '⟲';
 function focusCanvasDelayed() { try{ setTimeout(()=>{ gameCanvas.focus(); },50); }catch(e){} }
 
 // 在 createGameFromUI 调用后使用延迟聚焦
+
+// 创建游戏实例（页面加载时）
+createGameFromUI();
