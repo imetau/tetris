@@ -7,53 +7,86 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <main class="container">
-    <h1>Tetris</h1>
+  <div class="topbar">
+    <div class="menu-left">
+      <button id="menu-btn" aria-label="菜单">☰</button>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#">游戏</a>
+        <a href="#">规则</a>
+        <a href="#">关于</a>
+      </nav>
+    </div>
 
-    <section class="game-area">
-      <canvas id="game-canvas" width="240" height="480" aria-label="游戏画布"></canvas>
+    <div class="site-title">Tetris</div>
 
-      <aside class="panel">
-        <div class="scoreboard">
+    <div class="auth-right">
+      <div class="user-box">
+        <button id="auth-btn" class="auth-btn">登录</button>
+        <button id="theme-toggle" class="auth-btn">主题</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="app-grid">
+    <section class="game-wrapper">
+      <div class="game-stage">
+        <canvas id="game-canvas" width="240" height="480" aria-label="游戏画布"></canvas>
+
+        <div class="score-float">
           <div>分数: <span id="score">0</span></div>
           <div>等级: <span id="level">1</span></div>
           <div>行数: <span id="lines">0</span></div>
         </div>
 
-        <div class="controls">
-          <button id="start-btn">开始</button>
-          <button id="pause-btn">暂停</button>
-          <button id="reset-btn">重置</button>
+        <div class="next-mini">
+          <canvas id="next-canvas" width="96" height="96" aria-label="下一个方块"></canvas>
         </div>
 
-        <div class="next-piece">
-          <h3>下一个</h3>
-          <canvas id="next-canvas" width="80" height="80" aria-label="下一个方块"></canvas> 
+        <div class="overlay-controls">
+          <button id="start-btn" class="control-btn">开始</button>
+          <button id="pause-btn" class="control-btn">暂停</button>
+          <button id="reset-btn" class="control-btn">重置</button>
         </div>
 
-        <div class="highscores">
-          <h3>本地排行榜</h3>
-          <ol id="highscore-list"></ol>
-          <form id="save-score-form" class="save-form">
-            <input id="player-name" maxlength="12" placeholder="你的名字" required />
-            <button type="submit">保存当前分数</button>
-          </form>
+        <div id="welcome-overlay" class="welcome-overlay" style="display:none">
+          <h2>欢迎来到 Tetris</h2>
+          <p>触摸或点击“开始”以开始游戏</p>
+          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+            <button id="welcome-start" class="welcome-btn">开始</button>
+            <button id="welcome-rules" class="welcome-btn" style="background:rgba(255,255,255,0.06);color:#fff">规则</button>
+          </div>
         </div>
-      </aside>
+
+      </div>
     </section>
 
-    <section class="help">
-      <h2>操作</h2>
-      <ul>
-        <li>方向键 ← →：左右移动</li>
-        <li>方向键 ↑：旋转</li>
-        <li>方向键 ↓：加速下落</li>
-        <li>空格：硬降落</li>
-      </ul>
-    </section>
+    <aside class="right-panel">
+      <div class="user-box">
+        <div>
+          <strong id="user-name">游客</strong>
+        </div>
+        <div>
+          <button id="auth-btn-2" class="auth-btn">注册</button>
+        </div>
+      </div>
 
-    <footer>可选后端 API 支持远程排行榜（见 README）</footer>
+      <div id="extra-controls-holder"></div>
+
+      <div class="highscores">
+        <h3>本地排行榜</h3>
+        <ol id="highscore-list"></ol>
+        <form id="save-score-form" class="save-form">
+          <input id="player-name" maxlength="12" placeholder="你的名字" required />
+          <button type="submit">保存当前分数</button>
+        </form>
+      </div>
+
+    </aside>
   </main>
+
+  <div id="touch-controls"></div>
+
+  <footer class="site-footer">可选后端 API 支持远程排行榜（见 README）</footer>
 
   <script type="module" src="js/ui.js"></script>
 </body>

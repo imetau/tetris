@@ -5,31 +5,98 @@
   --accent:#00e676;
   --muted:#9aa6b2;
   --card:#071021;
+  --ui-opacity:0.88;
+  --t-bright: #e18bff; /* T 亮色 */
+  --t-dark: #7b3b7a;   /* T 暗色 */
+  --theme: bright; /* bright | dark */
 }
 
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans",Helvetica,Arial;}
-body{background:linear-gradient(180deg,#071021 0%, #0b1726 100%);color:#e6f0ff;display:flex;align-items:center;justify-content:center;padding:20px;}
-.container{max-width:1000px;width:100%;}
+body{background:linear-gradient(180deg,#071021 0%, #0b1726 100%);color:#e6f0ff;display:flex;flex-direction:column;}
 
-h1{text-align:center;margin:0 0 12px;font-weight:700}
-.game-area{display:flex;gap:16px;align-items:flex-start;justify-content:center}
-canvas{background:var(--card);display:block;border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
-#game-canvas{width:240px;height:480px;image-rendering:pixelated;border:2px solid rgba(255,255,255,0.04)}
-.panel{width:320px;display:flex;flex-direction:column;gap:12px}
-.scoreboard{background:rgba(255,255,255,0.02);padding:12px;border-radius:6px}
-.controls{display:flex;gap:8px}
-.controls button{flex:1;padding:8px;border-radius:6px;border:none;background:var(--panel);color:var(--accent);cursor:pointer}
-.controls button:active{transform:translateY(1px)}
-.next-piece{background:rgba(255,255,255,0.02);padding:8px;border-radius:6px;text-align:center}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));backdrop-filter: blur(6px);position:fixed;left:0;right:0;top:0;z-index:1000}
+.menu-left{display:flex;align-items:center;gap:12px}
+.site-title{font-weight:700;color:#e6f0ff;margin:0 12px;flex:1;text-align:center}
+.site-nav{display:flex}
+.site-nav a{color:var(--muted);margin-right:10px;text-decoration:none}
+.auth-right{display:flex;align-items:center}
+.auth-right .register-link{margin-left:8px}
+
+/* 响应式头部：窄屏隐藏次级链接，仅保留菜单、标题与登录 */
+@media (max-width:640px){
+  .site-nav{display:none}
+  .auth-right .register-link{display:none}
+  .site-title{text-align:left;padding-left:8px}
+}
+
+.app-grid{display:grid;grid-template-columns:1fr 340px;gap:14px;padding:80px 12px 12px;flex:1;align-items:start;max-width:1400px;margin:0 auto;width:100%;padding-bottom:24px}
+main.app-grid{padding-bottom:24px}
+
+/* 游戏区域 */
+.game-wrapper{display:flex;align-items:flex-start;justify-content:center}
+.game-stage{position:relative;width:100%;max-width:900px;display:flex;align-items:flex-start;justify-content:center;padding-top:6px}
+
+/* 画布自适应，占据容器高度并顶格对齐 */
+#game-canvas{width:100%;height:auto;max-height:calc(100vh - 160px);object-fit:contain;border-radius:8px;border:2px solid rgba(255,255,255,0.04);background:var(--card);image-rendering:pixelated}
+
+/* 分数浮动在画布上方左上角 */
+.score-float{position:absolute;left:8px;top:8px;background:rgba(0,0,0,0.45);padding:8px;border-radius:8px;backdrop-filter: blur(4px);font-weight:600}
+
+/* 下一个方块缩略 */
+.next-mini{position:absolute;right:12px;top:12px;width:96px;height:96px;border-radius:6px;background:rgba(0,0,0,0.25)}
+
+/* 悬浮透明控制按钮 */
+.overlay-controls{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;display:flex;gap:10px;padding:6px;background:transparent}
+.control-btn{min-width:84px;padding:10px 14px;border-radius:12px;border:none;background:rgba(255,255,255,0.06);color:#fff;opacity:var(--ui-opacity);font-size:16px;cursor:pointer;touch-action:none}
+.control-btn:active{transform:translateY(1px)}
+
+/* 右侧面板 */
+.right-panel{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);padding:12px;border-radius:8px;display:flex;flex-direction:column;gap:12px;height:fit-content}
+.user-box{display:flex;justify-content:space-between;align-items:center}
+.auth-btn{padding:8px 10px;border-radius:8px;border:none;background:rgba(255,255,255,0.04);color:var(--accent);cursor:pointer}
 .highscores{background:rgba(255,255,255,0.02);padding:8px;border-radius:6px}
-ol{padding-left:18px;margin:6px 0}
 .save-form{display:flex;gap:6px}
 .save-form input{flex:1;padding:6px;border-radius:4px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
 .save-form button{padding:6px;border-radius:4px;border:none;background:var(--accent);color:#042018;cursor:pointer}
+
+/* 触控按钮容器（备用） */
+#touch-controls{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;display:flex;gap:10px;z-index:9999}
+#touch-controls button{width:68px;height:68px;border-radius:12px;border:none;background:rgba(255,255,255,0.06);color:#fff;font-size:20px}
+
 .help{margin-top:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:6px;color:var(--muted)}
-footer{text-align:center;margin-top:10px;color:var(--muted);font-size:13px}
-@media (max-width:720px){
-  .game-area{flex-direction:column;align-items:center}
-  .panel{width:100%}
+.site-footer{text-align:center;padding:10px;color:var(--muted);font-size:13px;position:relative}
+
+/* 中央欢迎覆盖层 */
+.welcome-overlay{position:absolute;left:50%;top:12%;transform:translate(-50%,0);z-index:9000;background:rgba(0,0,0,0.55);padding:18px;border-radius:12px}
+.welcome-btn{padding:14px 22px;border-radius:12px;border:none;background:var(--accent);color:#042018;font-size:20px;cursor:pointer}
+
+/* 游戏结束时的回到开始按钮样式 */
+.gameover-restart{margin-top:8px;padding:10px 12px;border-radius:8px;border:none;background:var(--accent);color:#042018;cursor:pointer}
+
+/* 响应式：窄屏将右侧面板放到底部 */
+@media (max-width:960px){
+  .app-grid{grid-template-columns:1fr;grid-auto-rows:min-content;padding-top:72px}
+  .right-panel{order:2;width:100%}
+  .game-stage{max-width:540px}
+}
+
+@media (max-width:420px){
+  .overlay-controls{gap:6px}
+  .control-btn{min-width:56px;padding:10px 8px;font-size:18px}
+  #touch-controls button{width:76px;height:76px;font-size:22px}
+}
+
+/* 保留旧样式类兼容 */
+.panel{display:none}
+
+/* 亮/暗主题对应的 T 方块颜色 */
+.theme-bright .t-block{background:var(--t-bright)}
+.theme-dark .t-block{background:var(--t-dark)}
+
+/* 当宽度非常窄时，顶部显示最小信息 */
+@media (max-width:520px){
+  .site-nav{display:none}
+  .site-title{text-align:left}
+  #auth-btn-2{display:none}
 }

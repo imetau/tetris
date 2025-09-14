@@ -15,6 +15,25 @@ ctx.canvas.height = 20 * BLOCK;
 nextCtx.canvas.width = 4 * BLOCK;
 nextCtx.canvas.height = 4 * BLOCK;
 
+// 自适应画布显示尺寸：保证顶部与顶栏对齐并适配视口
+function adaptCanvasDisplaySize() {
+  try{
+    const stage = document.querySelector('.game-stage');
+    const topbar = document.querySelector('.topbar');
+    const rect = stage.getBoundingClientRect();
+    const vh = window.innerHeight - (topbar ? topbar.getBoundingClientRect().height : 0) - 24; // 留白
+    const maxH = Math.max(240, vh);
+    // 计算 css 高度以保持像素比
+    const cssH = Math.min(maxH, ctx.canvas.height);
+    gameCanvas.style.height = cssH + 'px';
+    // 宽度自动适配
+    // 保证 stage 顶部对齐
+    stage.style.alignItems = 'flex-start';
+  }catch(e){console.warn('adaptCanvasDisplaySize failed',e)}
+}
+
+window.addEventListener('resize', adaptCanvasDisplaySize);
+
 // UI 元素
 const scoreEl = document.getElementById('score');
 const levelEl = document.getElementById('level');
@@ -304,7 +323,9 @@ renderMusicList();
 gameCanvas.addEventListener('click', ()=> { try{ gameCanvas.focus(); }catch(e){} });
 gameCanvas.addEventListener('touchstart', ()=> { try{ gameCanvas.focus(); }catch(e){} }, {passive:true});
 
-// 新增：异形方块开关和 DOT 权重控件
+// 新增：异形方块开关和 DOT 权重控件，插入到 new holder 中
+let extraControlsHolder = document.getElementById('extra-controls-holder');
+if (!extraControlsHolder) extraControlsHolder = document.body;
 let extraControls = document.getElementById('extra-controls');
 if (!extraControls) {
   extraControls = document.createElement('div');
@@ -314,8 +335,7 @@ if (!extraControls) {
     <label><input type="checkbox" id="extra-shapes-checkbox"> 启用异形方块</label><br/>
     <label>DOT 概率: <input type="range" id="dot-weight-range" min="0" max="0.5" step="0.01" value="0.05"> <span id="dot-weight-value">0.05</span></label>
   `;
-  const panel = document.querySelector('.panel');
-  panel.appendChild(extraControls);
+  extraControlsHolder.appendChild(extraControls);
 }
 
 const extraCheckbox = document.getElementById('extra-shapes-checkbox');
@@ -357,6 +377,8 @@ function createGameFromUI() {
     extraShapes: !!extraCheckbox.checked,
     dotWeight: parseFloat(dotRange.value)
   };
+  // 先确保画布尺寸匹配
+  adaptCanvasDisplaySize();
   game = new TetrisGame(ctx, nextCtx, (state) => {
     // 根据 state.paused/gameOver 控制输入
     if (state.paused || state.gameOver) setInputEnabled(false); else setInputEnabled(true);
@@ -390,18 +412,24 @@ startBtn.addEventListener('click', () => {
   ensureAudioContext();
   playEffect('start');
   if (musicEnabled) startMusicLoop();
-  game.start();
+  if (game) game.start();
   renderHighscores();
   // 隐藏遮罩并启用输入
   hideOverlay();
   setInputEnabled(true);
 });
+
+// welcome overlay
+const welcomeStart = document.getElementById('welcome-start');
+if (welcomeStart) welcomeStart.addEventListener('click', (e)=>{ e.preventDefault(); createGameFromUI(); if (game) game.start(); hideOverlay(); setInputEnabled(true); });
+
 pauseBtn.addEventListener('click', () => {
+  if (!game) return;
   game.pause();
   pauseBtn.textContent = game.paused ? '继续' : '暂停';
   if (game.paused) { stopMusicLoop(); setInputEnabled(false); } else if (musicEnabled) { startMusicLoop(); setInputEnabled(true); }
 });
-resetBtn.addEventListener('click', () => { game.reset(); renderHighscores(); stopMusicLoop(); setInputEnabled(false); hideOverlay(); });
+resetBtn.addEventListener('click', () => { if (!game) createGameFromUI(); game.reset(); renderHighscores(); stopMusicLoop(); setInputEnabled(false); hideOverlay(); });
 
 // 页面内 modal 实现
 let modal = document.getElementById('gameover-modal');
@@ -421,14 +449,18 @@ if (!modal) {
 }
 
 function showGameOverModal(score) {
-  modal.innerHTML = `<h3 style="margin:0 0 8px">游戏结束</h3><p>你的分数: ${score}</p><div style="display:flex;gap:8px;margin-top:8px"><button id="modal-save">保存分数</button><button id="modal-close">关闭</button></div>`;
+  modal.innerHTML = `<h3 style="margin:0 0 8px">游戏结束</h3><p>你的分数: ${score}</p><div style="display:flex;gap:8px;margin-top:8px"><button id="modal-save">保存分数</button><button id="modal-close">返回菜单</button></div>`;
   modal.style.display = 'block';
   // 禁用输入并显示遮罩
   setInputEnabled(false);
   showOverlay('游戏结束');
-  document.getElementById('modal-close').addEventListener('click', () => { modal.style.display = 'none'; hideOverlay(); });
+  document.getElementById('modal-close').addEventListener('click', () => { modal.style.display = 'none'; hideOverlay(); showWelcomeOverlay(); });
   document.getElementById('modal-save').addEventListener('click', () => { document.getElementById('player-name').focus(); modal.style.display = 'none'; hideOverlay(); });
 }
+
+// welcome overlay helpers
+function showWelcomeOverlay(){ const w = document.getElementById('welcome-overlay'); if (w) w.style.display='block'; }
+function hideOverlayAndWelcome(){ hideOverlay(); const w = document.getElementById('welcome-overlay'); if (w) w.style.display='none'; }
 
 // 页面遮罩层用于在暂停或结束时阻止误触
 let overlay = document.getElementById('ui-overlay');
@@ -446,8 +478,8 @@ function ensureOverlay() {
     document.body.appendChild(overlay);
   }
 }
-function showOverlay(text='') { ensureOverlay(); overlay.style.display = 'block'; overlay.textContent = text; overlay.style.pointerEvents = 'auto'; }
-function hideOverlay() { if (overlay) { overlay.style.display = 'none'; overlay.style.pointerEvents = 'none'; } }
+function showOverlay(text='') { ensureOverlay(); overlay.style.display = 'block'; overlay.textContent = text; overlay.style.pointerEvents = 'auto'; const w = document.getElementById('welcome-overlay'); if (w) w.style.display='none'; }
+function hideOverlay() { if (overlay) { overlay.style.display = 'none'; overlay.style.pointerEvents = 'none'; } const w = document.getElementById('welcome-overlay'); if (w) w.style.display='none'; }
 
 // 增加更多曲目到 musicLibrary（若尚未存在）
 (function addExtraTracks(){
@@ -500,6 +532,7 @@ function focusCanvasDelayed() { try{ setTimeout(()=>{ gameCanvas.focus(); },50);
 
 // 创建游戏实例（页面加载时）
 createGameFromUI();
+showWelcomeOverlay();
 
 // 键盘输入处理：支持箭头和空格（硬降落），尊重 inputEnabled
 window.addEventListener('keydown', (e) => {
@@ -510,23 +543,30 @@ window.addEventListener('keydown', (e) => {
 
   switch (e.code) {
     case 'ArrowLeft':
-      e.preventDefault(); try { game.move(-1); } catch(_){}
+      e.preventDefault(); try { game.move(-1); } catch(_){ }
       break;
     case 'ArrowRight':
-      e.preventDefault(); try { game.move(1); } catch(_){}
+      e.preventDefault(); try { game.move(1); } catch(_){ }
       break;
     case 'ArrowDown':
-      e.preventDefault(); try { game.drop(); } catch(_){}
+      e.preventDefault(); try { game.drop(); } catch(_){ }
       break;
     case 'ArrowUp':
-      e.preventDefault(); try { game.rotateCurrent(); } catch(_){}
+      e.preventDefault(); try { game.rotateCurrent(); } catch(_){ }
       break;
     case 'Space':
-      e.preventDefault(); try { game.hardDrop(); } catch(_){}
+      e.preventDefault(); try { game.hardDrop(); } catch(_){ }
       break;
     case 'KeyP':
       // P 切换暂停
-      e.preventDefault(); try { game.pause(); pauseBtn.textContent = game.paused ? '继续' : '暂停'; } catch(_){}
+      e.preventDefault(); try { game.pause(); pauseBtn.textContent = game.paused ? '继续' : '暂停'; } catch(_){ }
       break;
   }
 });
+
+// 主题切换（亮/暗 T 方块）
+const themeToggle = document.getElementById('theme-toggle');
+let theme = 'bright';
+function applyTheme(t){ theme = t; document.documentElement.classList.remove('theme-bright','theme-dark'); document.documentElement.classList.add(t==='bright' ? 'theme-bright' : 'theme-dark'); }
+if (themeToggle) themeToggle.addEventListener('click', ()=>{ applyTheme(theme==='bright' ? 'dark' : 'bright'); });
+applyTheme('bright');
