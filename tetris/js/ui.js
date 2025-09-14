@@ -500,3 +500,33 @@ function focusCanvasDelayed() { try{ setTimeout(()=>{ gameCanvas.focus(); },50);
 
 // 创建游戏实例（页面加载时）
 createGameFromUI();
+
+// 键盘输入处理：支持箭头和空格（硬降落），尊重 inputEnabled
+window.addEventListener('keydown', (e) => {
+  // 如果输入被禁用或在表单控件中输入则忽略
+  const target = e.target;
+  const tag = target && target.tagName ? target.tagName.toUpperCase() : '';
+  if (!inputEnabled || tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+
+  switch (e.code) {
+    case 'ArrowLeft':
+      e.preventDefault(); try { game.move(-1); } catch(_){}
+      break;
+    case 'ArrowRight':
+      e.preventDefault(); try { game.move(1); } catch(_){}
+      break;
+    case 'ArrowDown':
+      e.preventDefault(); try { game.drop(); } catch(_){}
+      break;
+    case 'ArrowUp':
+      e.preventDefault(); try { game.rotateCurrent(); } catch(_){}
+      break;
+    case 'Space':
+      e.preventDefault(); try { game.hardDrop(); } catch(_){}
+      break;
+    case 'KeyP':
+      // P 切换暂停
+      e.preventDefault(); try { game.pause(); pauseBtn.textContent = game.paused ? '继续' : '暂停'; } catch(_){}
+      break;
+  }
+});
