@@ -144,6 +144,7 @@ function rotateMatrix(matrix) {
 // TetrisGame 类
 export class TetrisGame {
   constructor(ctx, nextCtx, onUpdate = () => {}, options = {}) {
+    console.log('[TetrisGame] constructor', { options });
     this.ctx = ctx;           // 主画布上下文
     this.nextCtx = nextCtx;   // 下一个方块画布上下文
     this.onUpdate = onUpdate; // 回调，用于 UI 更新（score/level/lines）
@@ -385,6 +386,8 @@ export class TetrisGame {
 
   // 绘制网格与方块，DOT 闪烁效果
   draw() {
+    // 调试日志，避免过量打印，仅首次或关键时刻可见
+    if (!this._hasDrawnOnce) { console.log('[TetrisGame] first draw call, grid size', ROWS, COLS, 'current', this.current && this.current.type); this._hasDrawnOnce = true; }
     // 清空主画布
     const ctx = this.ctx;
     ctx.clearRect(0,0,ctx.canvas.width, ctx.canvas.height);
